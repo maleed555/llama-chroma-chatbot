@@ -183,8 +183,8 @@ st.markdown("</div>", unsafe_allow_html=True)
 def init_models():
     # Use the unified Google GenAI LLM
     Settings.llm = Gemini(
-        model_name="models/gemini-1.5-flash",
-        api_key=api_key,
+    model_name="gemini-1.5-flash", # Removed 'models/'
+    api_key=api_key,
     )
     Settings.embed_model = HuggingFaceEmbedding(
         model_name="BAAI/bge-small-en-v1.5"
