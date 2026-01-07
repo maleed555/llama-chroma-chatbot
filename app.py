@@ -117,9 +117,13 @@ st.markdown(
 )
 
 # --------------------------------------------------
-# 4️⃣ HELPERS
+# 4️⃣ HELPERS (Updated for Cloud Stability)
 # --------------------------------------------------
+# Use an absolute path for ChromaDB to avoid Streamlit Cloud permission issues
+DB_PATH = os.path.join(os.getcwd(), "chroma_db")
+
 def safe_rmtree(path, retries=5, delay=0.5):
+    """Safely removes a directory even if locked."""
     for _ in range(retries):
         try:
             if os.path.exists(path):
@@ -128,17 +132,16 @@ def safe_rmtree(path, retries=5, delay=0.5):
         except PermissionError:
             time.sleep(delay)
 
-
 def calculate_doc_stats(documents):
     stats = {}
     for doc in documents:
-        source = doc.metadata.get("source", "Unknown")
+        source = doc.metadata.get("file_name", "Unknown")
         stats[source] = len(doc.text.split())
     return stats
 
 
 # --------------------------------------------------
-# 5️⃣ UPLOAD SECTION
+# 5️⃣ UPLOAD SECTION (Updated Reset Logic)
 # --------------------------------------------------
 st.markdown('<div class="card">', unsafe_allow_html=True)
 
@@ -150,14 +153,26 @@ uploaded_files = st.file_uploader(
 
 if st.button("🗑️ Reset Database"):
     try:
-        db = chromadb.PersistentClient(path="./chroma_db")
-        for col in db.list_collections():
-            db.delete_collection(col.name)
-        safe_rmtree("./chroma_db")
-        st.session_state.clear()
-        st.success("Database reset successfully")
+        # Instead of deleting folders which crashes the Rust backend, 
+        # we clear the collection and session state
+        db = chromadb.PersistentClient(path=DB_PATH)
+        try:
+            db.delete_collection("streamlit_rag")
+        except:
+            pass # Collection might not exist yet
+            
+        # Clear the physical folder safely
+        safe_rmtree(DB_PATH)
+        
+        # Reset session state
+        for key in list(st.session_state.keys()):
+            del st.session_state[key]
+            
+        st.success("Database reset successfully! App will refresh...")
+        time.sleep(1)
+        st.rerun()
     except Exception as e:
-        st.error(e)
+        st.error(f"Reset Error: {e}")
 
 st.markdown("</div>", unsafe_allow_html=True)
 
@@ -166,8 +181,9 @@ st.markdown("</div>", unsafe_allow_html=True)
 # --------------------------------------------------
 @st.cache_resource
 def init_models():
+    # Use the unified Google GenAI LLM
     Settings.llm = Gemini(
-        model_name="models/gemini-3-flash-preview",
+        model_name="models/gemini-1.5-flash",
         api_key=api_key,
     )
     Settings.embed_model = HuggingFaceEmbedding(
@@ -177,10 +193,14 @@ def init_models():
 
 
 # --------------------------------------------------
-# 7️⃣ VECTOR STORE
+# 7️⃣ VECTOR STORE (Robust Pathing)
 # --------------------------------------------------
 def get_index():
-    db = chromadb.PersistentClient(path="./chroma_db")
+    # Always use the absolute DB_PATH defined in helpers
+    if not os.path.exists(DB_PATH):
+        os.makedirs(DB_PATH)
+        
+    db = chromadb.PersistentClient(path=DB_PATH)
     collection = db.get_or_create_collection("streamlit_rag")
     vector_store = ChromaVectorStore(chroma_collection=collection)
     storage_context = StorageContext.from_defaults(vector_store=vector_store)
@@ -213,7 +233,7 @@ def get_index():
 # 8️⃣ CHAT
 # --------------------------------------------------
 if not api_key:
-    st.error("⚠️ GOOGLE_API_KEY not found")
+    st.error("⚠️ GOOGLE_API_KEY not found in Environment Variables or Streamlit Secrets")
     st.stop()
 
 init_models()
@@ -243,6 +263,7 @@ if prompt := st.chat_input("Ask your documents…"):
         {"role": "user", "content": prompt}
     )
 
+    # Simple logic for word count queries
     if (
         "word" in prompt.lower()
         and "document" in prompt.lower()
@@ -253,11 +274,12 @@ if prompt := st.chat_input("Ask your documents…"):
             for k, v in st.session_state.doc_stats.items()
         )
     else:
-        answer = query_engine.query(prompt).response
+        with st.spinner("Thinking..."):
+            response = query_engine.query(prompt)
+            answer = response.response
 
     st.session_state.messages.append(
         {"role": "assistant", "content": answer}
     )
 
     st.rerun()
-
