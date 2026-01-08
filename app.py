@@ -31,61 +31,16 @@ st.set_page_config(
 st.markdown(
     """
 <style>
-.stApp {
-    background-color:#0f172a;
-    color:#f1f5f9;
-    font-family:'Inter',sans-serif;
-}
+.stApp {background-color:#0f172a;color:#f1f5f9;font-family:'Inter',sans-serif;}
 .app-header{text-align:center;margin-bottom:25px;}
 .app-header h1{font-size:3rem;font-weight:800;color:#38bdf8;}
 .app-header p{font-size:1.1rem;color:#e2e8f0;}
-
-.card{
-    background:#1e293b;
-    border-radius:15px;
-    padding:20px;
-    margin-bottom:20px;
-}
-
-.chat-container{
-    display:flex;
-    flex-direction:column;
-    gap:10px;
-    max-width:900px;
-    margin:auto;
-    height:65vh;
-    overflow-y:auto;
-    padding-bottom:120px;
-}
-
-.chat-message{
-    border-radius:12px;
-    padding:14px;
-    max-width:70%;
-    word-break:break-word;
-}
-
-.chat-message.user{
-    background:#2563eb;
-    color:white;
-    align-self:flex-end;
-}
-
-.chat-message.assistant{
-    background:#0ea5e9;
-    color:#0f172a;
-    align-self:flex-start;
-}
-
-.stChatInput{
-    position:fixed;
-    bottom:20px;
-    left:50%;
-    transform:translateX(-50%);
-    width:70%;
-    max-width:900px;
-    z-index:999;
-}
+.card{background:#1e293b;border-radius:15px;padding:20px;margin-bottom:20px;}
+.chat-container{display:flex;flex-direction:column;gap:10px;max-width:900px;margin:auto;height:65vh;overflow-y:auto;padding-bottom:120px;}
+.chat-message{border-radius:12px;padding:14px;max-width:70%;word-break:break-word;}
+.chat-message.user{background:#2563eb;color:white;align-self:flex-end;}
+.chat-message.assistant{background:#0ea5e9;color:#0f172a;align-self:flex-start;}
+.stChatInput{position:fixed;bottom:20px;left:50%;transform:translateX(-50%);width:70%;max-width:900px;z-index:999;}
 </style>
 """,
     unsafe_allow_html=True,
@@ -128,6 +83,7 @@ def calculate_doc_stats(docs):
 # --------------------------------------------------
 st.markdown('<div class="card">', unsafe_allow_html=True)
 
+# ✅ Streamlit Secrets
 api_key = st.secrets.get("GOOGLE_API_KEY")
 
 uploaded_files = st.file_uploader(
@@ -141,29 +97,30 @@ if st.button("🗑️ Reset Database"):
         db.delete_collection("streamlit_rag")
     except:
         pass
-
     safe_rmtree(DB_PATH)
-
     for k in list(st.session_state.keys()):
         del st.session_state[k]
-
     st.success("Database reset successfully")
     st.rerun()
 
 st.markdown("</div>", unsafe_allow_html=True)
 
 # --------------------------------------------------
-# 6️⃣ INIT MODELS (FIXED)
+# 6️⃣ INIT MODELS
 # --------------------------------------------------
 @st.cache_resource
 def init_models():
+    if not api_key:
+        st.error("⚠️ GOOGLE_API_KEY missing in Streamlit Secrets")
+        st.stop()
+
     Settings.llm = Gemini(
-        model="models/gemini-1.0-pro",   # ✅ STABLE & AVAILABLE
+        model="models/gemini-1.0-pro",  # ✅ Stable model
         api_key=api_key,
     )
 
     Settings.embed_model = HuggingFaceEmbedding(
-        model_name="BAAI/bge-small-en-v1.5"  # ✅ FREE
+        model_name="BAAI/bge-small-en-v1.5"  # ✅ Free
     )
 
     Settings.chunk_size = 1024
@@ -173,10 +130,8 @@ def init_models():
 # --------------------------------------------------
 def get_index():
     os.makedirs(DB_PATH, exist_ok=True)
-
     db = chromadb.PersistentClient(path=DB_PATH)
     collection = db.get_or_create_collection("streamlit_rag")
-
     vector_store = ChromaVectorStore(chroma_collection=collection)
     storage_context = StorageContext.from_defaults(vector_store=vector_store)
 
@@ -206,12 +161,7 @@ def get_index():
 # --------------------------------------------------
 # 8️⃣ CHAT
 # --------------------------------------------------
-if not api_key:
-    st.error("⚠️ GOOGLE_API_KEY missing in Streamlit Secrets")
-    st.stop()
-
 init_models()
-
 index = get_index()
 query_engine = index.as_query_engine(similarity_top_k=3)
 
@@ -219,19 +169,16 @@ if "messages" not in st.session_state:
     st.session_state.messages = []
 
 st.markdown('<div class="chat-container">', unsafe_allow_html=True)
-
 for m in st.session_state.messages:
     st.markdown(
         f'<div class="chat-message {m["role"]}">{m["content"]}</div>',
         unsafe_allow_html=True,
     )
-
 st.markdown("</div>", unsafe_allow_html=True)
 
+# Input
 if prompt := st.chat_input("Ask your documents…"):
-    st.session_state.messages.append(
-        {"role": "user", "content": prompt}
-    )
+    st.session_state.messages.append({"role": "user", "content": prompt})
 
     if (
         "word" in prompt.lower()
@@ -247,8 +194,5 @@ if prompt := st.chat_input("Ask your documents…"):
             response = query_engine.query(prompt)
             answer = response.response
 
-    st.session_state.messages.append(
-        {"role": "assistant", "content": answer}
-    )
-
+    st.session_state.messages.append({"role": "assistant", "content": answer})
     st.rerun()
